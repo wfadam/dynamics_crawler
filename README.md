@@ -1,7 +1,7 @@
 # dynamics_crawler
 ## Crawl for jobs
 ```bash
-node latest_n_rework
+node latest
 ```
 
 ## Work on jobs
