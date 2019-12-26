@@ -3,9 +3,9 @@ const bluebird = require('bluebird');
 bluebird.promisifyAll(redis.RedisClient.prototype);
 bluebird.promisifyAll(redis.Multi.prototype);
 
-const IP = 'mtte';
+const IP = '10.71.25.105';
 
-async function redisClient(port) { 
+async function redisClient(port, name = '') { 
     if(! port) {
         return Promise.reject('Forget to specify database port ?');
     }
@@ -13,6 +13,7 @@ async function redisClient(port) {
         let client = redis.createClient(port, IP);
         client.on('error', err => reject(err));
         client.on('ready', _ => resolve(client));
+        client.client('SETNAME', name);
     });
 }
 
