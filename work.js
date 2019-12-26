@@ -15,12 +15,12 @@ const PORT = 6380;
 
 async function assignWorker(fn, jobKind) {
     let driver;
-    let interval;
     async function worker() {
+        let interval = 5 * SECOND;
         try {
-            const client = await redisClient(PORT);
+            const client = await redisClient(PORT, 'assignWorker()');
             const msg = await client.spopAsync(jobKind);
-            client.quit();
+            await client.quitAsync();
             if(msg) {
                 if(! driver) driver = await getWebDriver({headless: true});
                 await fn(driver, JSON.parse(msg));
@@ -30,10 +30,9 @@ async function assignWorker(fn, jobKind) {
                     await driver.browser().close();
                     driver = null;
                 }
-                interval = 5 * SECOND;
             }
         } catch(e) {
-            console.error(e);
+            console.error(`worker[${process.pid}]`, e);
         }
         setTimeout(worker, interval);
     }    
