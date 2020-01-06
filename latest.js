@@ -1,4 +1,3 @@
-const cluster = require('cluster');
 const {redisClient} = require('./DB.js');
 const {getPage} = require('./browser.js');
 
