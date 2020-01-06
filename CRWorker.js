@@ -1,8 +1,7 @@
-const {Builder, By, Key, until} = require('selenium-webdriver');
-const chrome = require('selenium-webdriver/chrome');
 const R = require('ramda');
 const path = require('path');
 
+const {getWebDriver} = require('./browser.js');
 const {redisClient} = require('./DB.js');
 const PORT = 6380;
 
@@ -14,13 +13,6 @@ const getFilePageURL = (otype, uid) => `${SERVER_ADDR}/Dynamics/tools/documentma
 const timeStamp = _ => `${new Date().toLocaleString()}`;
 const trimCurly = (str = '') => str.slice(1, -1);
 const TIMEOUT = 60 * 1000;
-
-async function getWebDriver(opts = {headless: false}) {
-    const puppeteer = require('puppeteer');
-    const browser = await puppeteer.launch(opts);
-    let [page] = await browser.pages();
-    return page;
-}
 
 function flatProps(...props) {
     return (obj = {}) => {
@@ -106,7 +98,12 @@ async function fetchAttachment(driver, otype, oid) {
     try {
         await driver.goto(getFilePageURL(otype, oid), {timeout: TIMEOUT});
         const frames = await driver.frames();
-        await frames[1].waitFor('#divDataArea');
+
+        let errstyle = await frames[0].$eval('#errorMessageArea', e => e.getAttribute('style'));
+        if(errstyle.includes('display: inline')) {
+            return undefined;
+        }
+
         const rst = await frames[1].$$eval('tr[docurl]', arr => arr.map(ele => {
             const docurl = ele.getAttribute('docurl');
             const obj = ele.querySelectorAll('td');
@@ -126,10 +123,10 @@ async function fetchAttachment(driver, otype, oid) {
     } catch(e) {
         return undefined;
     }
-};
+}
 
 async function savePeople(modifiedon = '', obj = {}) {
-    const client = await redisClient(PORT);
+    const client = await redisClient(PORT, 'savePeople()');
     try {
         await Promise.all(Object.keys(obj).map(async key => {
             let {value, otype, oid} = obj[key];
@@ -145,10 +142,10 @@ async function savePeople(modifiedon = '', obj = {}) {
     }
 };
 
-async function workOn(driver, {crn, otype, oid}) {
+async function workOn(page, {crn, otype, oid}) {
     let t0 = Date.now();
 
-    const raw = await fetchJson(driver, otype, oid);
+    const raw = await fetchJson(page, otype, oid);
 
     const obj = cherryPick(raw); 
     if(Object.keys(obj).length === 0) {
@@ -164,7 +161,7 @@ async function workOn(driver, {crn, otype, oid}) {
     let {zsd_scrnumber, zsd_tcrnumber} = obj;
     let key = zsd_scrnumber || zsd_tcrnumber;
 
-    const client = await redisClient(PORT);
+    const client = await redisClient(PORT, 'workOn()');
     await Promise.all([
         client.hmsetAsync(key, obj),
         client.zaddAsync('TIMELINE:CR', Date.parse(obj['modifiedon']), JSON.stringify(summarize(key, obj))),
@@ -172,22 +169,21 @@ async function workOn(driver, {crn, otype, oid}) {
     ])
     .then(async _ => {
         await client.saddAsync(JOB_DOC, JSON.stringify({crn: key, otype, oid}));
-        console.log(`${timeStamp()} > Updated ${key} ${Date.now() - t0}mS`);
+        console.log(`${timeStamp()} > Worker[${process.pid}] updated ${key} ${Date.now() - t0}mS`);
     })
     .then(_ => client.quit())
     .catch(e => console.error(`${timeStamp()} > Bad data was written to ${crn}`, e));
 }
 
-async function workDoc(driver, {crn, otype, oid}) {
+async function workDoc(page, {crn, otype, oid}) {
     let t0 = Date.now();
 
-    const doc = await fetchAttachment(driver, otype, oid);
+    const doc = await fetchAttachment(page, otype, oid);
     if(! doc) {
-        return console.error(`${timeStamp()} > Aborted querying DOC of ${crn}`);
+        return console.error(`${timeStamp()} > Not found DOC of ${crn}`);
     }
 
-
-    const client = await redisClient(PORT);
+    const client = await redisClient(PORT, 'workDoc()');
     let docStr = await client.hgetAsync(crn, 'DOC');
     let docObj;
     try {
@@ -205,7 +201,7 @@ async function workDoc(driver, {crn, otype, oid}) {
     .hmsetAsync(crn, partialObj)
     .then(_ => {
         client.quit();
-        console.log(`${timeStamp()} > Updated DOC of ${crn} ${Date.now() - t0}mS`)
+        console.log(`${timeStamp()} > Worker[${process.pid}] updated DOC of ${crn} ${Date.now() - t0}mS`)
     });
 }
 
@@ -246,13 +242,14 @@ function summarize(crn, obj = {}) {
 
 if(require.main === module) {
     (async () => {
-        let driver = await getWebDriver({headless: true}); 
         try {
-            //await workOn(driver, { crn: 'TCR-28842.0', otype: 10061, oid: '35d94e26-74c4-e911-80ec-005056ab451f'});
-            await workOn(driver, { crn: 'TCR-22623.13', otype: 10061, oid: 'adce324d-1613-e911-80e9-005056ab451f'});
-            //await workDoc(driver, { crn: 'TCR-25217.24', otype: 10061, oid: 'a5e1502f-91d3-e911-80ec-005056ab451f'});
-            //await workDoc(driver, { crn: 'TCR-23890.1', otype: 10061, oid: '01a2d4ad-30a2-e911-80eb-005056ab451f'});
-            //await workDoc(driver, { crn: 'TCR-20421.13', otype: 10061, oid: '1824e771-9ac8-e911-80eb-005056ab4520'});
+            let driver = await getWebDriver({headless: false});
+            let [page] = await driver.pages(); 
+            //await workOn(page, { crn: 'TCR-28842.0', otype: 10061, oid: '35d94e26-74c4-e911-80ec-005056ab451f'});
+            //await workOn(page, { crn: 'TCR-22623.13', otype: 10061, oid: 'adce324d-1613-e911-80e9-005056ab451f'});
+            //await workDoc(page, { crn: 'TCR-25217.24', otype: 10061, oid: 'a5e1502f-91d3-e911-80ec-005056ab451f'});
+            await workDoc(page, { crn: 'TCR-23890.1', otype: 10061, oid: '01a2d4ad-30a2-e911-80eb-005056ab451f'});
+            //await workDoc(page, { crn: 'TCR-20421.13', otype: 10061, oid: '1824e771-9ac8-e911-80eb-005056ab4520'});
         } catch(e) {
             console.error(e);
         }
@@ -261,5 +258,4 @@ if(require.main === module) {
 
 exports.workOn = workOn;
 exports.workDoc = workDoc;
-exports.getWebDriver = getWebDriver;
 
