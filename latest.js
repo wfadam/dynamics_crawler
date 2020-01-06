@@ -1,6 +1,6 @@
 const cluster = require('cluster');
 const {redisClient} = require('./DB.js');
-const {getWebDriver} = require('./CRWorker.js');
+const {getPage} = require('./browser.js');
 
 const SERVER_ADDR = 'http://dynamics.company.com';
 const getTaskURL = (otype = '') => `${SERVER_ADDR}/Dynamics/_root/homepage.aspx?etc=${otype}&pagemode=iframe`;
@@ -19,10 +19,10 @@ async function crawl(otype) {
     const pageFunc = arr => arr.map(e => [e.getAttribute('oid'), e.innerText]);
 
     const t0 = Date.now();
-    const page = await getWebDriver({headless: true});
+    const page = await getPage();
     await page.goto(getTaskURL(otype));
     const rawArr = await page.$$eval(selector, pageFunc); //console.log(rawArr);
-    await page.browser().close();
+    await page.close();
 
     console.log(`${timeStamp()} > Poll ${rawArr.length} otype[${otype}] in ${Date.now() - t0}mS`); 
     return rawArr.map(e => {
@@ -71,7 +71,7 @@ async function buildPoll({otype, job = JOB_NEW}, interval = POLL_DELAY) {
         } catch(e) {
             console.error(e);
             delay = interval * 4;
-            console.error(`${timeStamp()} > Try in ${delay / 1000}S`);
+            console.error(`${timeStamp()} > Try otype[${otype}] in ${delay / 1000}S`);
         } finally {
             setTimeout(poll, delay);
         }
@@ -80,13 +80,10 @@ async function buildPoll({otype, job = JOB_NEW}, interval = POLL_DELAY) {
 }
 
 //------------------------------------------------------------------
+(async _ => {
+    const pollTCR = await buildPoll({otype: 10061});
+    pollTCR();
+    const pollSCR = await buildPoll({otype: 10173}, POLL_DELAY * 2);
+    setTimeout(_ => pollSCR(), 5000);
+})();
 
-if (cluster.isMaster) {
-    cluster.fork().send({otype: 10061});
-    setTimeout(_ => cluster.fork().send({otype: 10173}), POLL_DELAY / 2);
-} else {
-    process.on('message', async msg => {
-        const poll = await buildPoll(msg);
-        poll();
-    });
-}
