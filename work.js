@@ -1,8 +1,6 @@
-const {Builder, By, Key} = require('selenium-webdriver');
-const chrome = require('selenium-webdriver/chrome');
-const cluster = require('cluster');
 const {redisClient} = require('./DB.js');
-const {workOn, workDoc, getWebDriver} = require('./CRWorker.js');
+const {workOn, workDoc} = require('./CRWorker.js');
+const {getWebDriver} = require('./browser.js');
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const DAY = 24 * 3600 * 1000;
@@ -13,8 +11,8 @@ const JOB_NEW = 'JOBS:NEW:CR';
 const JOB_DOC = 'JOBS:DOC';
 const PORT = 6380;
 
-async function assignWorker(fn, jobKind) {
-    let driver;
+async function assignWorker(driver, fn, jobKind) {
+    let page;
     async function worker() {
         let interval = 5 * SECOND;
         try {
@@ -22,13 +20,15 @@ async function assignWorker(fn, jobKind) {
             const msg = await client.spopAsync(jobKind);
             await client.quitAsync();
             if(msg) {
-                if(! driver) driver = await getWebDriver({headless: true});
-                await fn(driver, JSON.parse(msg));
+                if(! page) {
+                    page = await driver.newPage();
+                }
+                await fn(page, JSON.parse(msg));
                 interval = 0;
             } else {
-                if(driver) {
-                    await driver.browser().close();
-                    driver = null;
+                if(page) {
+                    await page.close();
+                    page = null;
                 }
             }
         } catch(e) {
@@ -38,7 +38,7 @@ async function assignWorker(fn, jobKind) {
     }    
 
     worker();
-    console.log(`${timeStamp()} > Created worker[${process.pid}] for ${jobKind}`);
+    console.log(`${timeStamp()} > Created worker for ${jobKind}`);
 }
 
 //------------------------------------------------------------------
@@ -46,26 +46,17 @@ async function assignWorker(fn, jobKind) {
 module['workOn'] = workOn;
 module['workDoc'] = workDoc;
 
-if (cluster.isMaster) {
-
-    const PARALLEL = require('os').cpus().length;
+(async _ => {
+    let driver = await getWebDriver({headless: true});
+    const cpus = require('os').cpus();
+    const PARALLEL = Math.min(8, cpus.length);
     for(let cnt = 0; cnt < PARALLEL; cnt++) {
         let opts;
-        if(cnt < 2)
-            opts = {fn: 'workOn', jobKind: JOB_NEW};
-        else if(cnt < 4) 
-            opts = {fn: 'workOn', jobKind: JOB};
-        else
-            opts = {fn: 'workDoc', jobKind: JOB_DOC};
+        if(cnt < 1)         opts = {fn: 'workOn', jobKind: JOB_NEW};
+        else if(cnt < 2)    opts = {fn: 'workOn', jobKind: JOB};
+        else                opts = {fn: 'workDoc', jobKind: JOB_DOC};
 
-        cluster.fork().send(opts);
+        assignWorker(driver, module[opts.fn], opts.jobKind);
     }
-
-} else {
-
-    process.on('message', msg => {
-        assignWorker(module[msg.fn], msg.jobKind);
-    });
-
-}
+})();
 
