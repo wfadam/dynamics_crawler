@@ -104,6 +104,7 @@ async function fetchAttachment(driver, otype, oid) {
             return undefined;
         }
 
+        await frames[1].waitForNavigation({waitUntil: 'networkidle0'});
         const rst = await frames[1].$$eval('tr[docurl]', arr => arr.map(ele => {
             const docurl = ele.getAttribute('docurl');
             const obj = ele.querySelectorAll('td');
@@ -201,7 +202,7 @@ async function workDoc(page, {crn, otype, oid}) {
     .hmsetAsync(crn, partialObj)
     .then(_ => {
         client.quit();
-        console.log(`${timeStamp()} > Worker[${process.pid}] updated DOC of ${crn} ${Date.now() - t0}mS`)
+        console.log(`${timeStamp()} > Worker[${process.pid}] updated ${Object.keys(doc).length} DOC of ${crn} ${Date.now() - t0}mS`)
     });
 }
 
@@ -248,7 +249,8 @@ if(require.main === module) {
             //await workOn(page, { crn: 'TCR-28842.0', otype: 10061, oid: '35d94e26-74c4-e911-80ec-005056ab451f'});
             //await workOn(page, { crn: 'TCR-22623.13', otype: 10061, oid: 'adce324d-1613-e911-80e9-005056ab451f'});
             //await workDoc(page, { crn: 'TCR-25217.24', otype: 10061, oid: 'a5e1502f-91d3-e911-80ec-005056ab451f'});
-            await workDoc(page, { crn: 'TCR-23890.1', otype: 10061, oid: '01a2d4ad-30a2-e911-80eb-005056ab451f'});
+            //await workDoc(page, { crn: 'TCR-23890.1', otype: 10061, oid: '01a2d4ad-30a2-e911-80eb-005056ab451f'});
+            await workDoc(page, { crn: 'TCR-27920.4', otype: 10061, oid: '71AF16B1-8104-EA11-80ED-005056AB4520'});
             //await workDoc(page, { crn: 'TCR-20421.13', otype: 10061, oid: '1824e771-9ac8-e911-80eb-005056ab4520'});
         } catch(e) {
             console.error(e);
